@@ -1,0 +1,4 @@
+# Datasource comes from Testcontainers (@ServiceConnection), so nothing to set here.
+logging:
+  level:
+    com.example.booking: INFO

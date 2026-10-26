@@ -1,0 +1,40 @@
+spring:
+  application:
+    name: booking
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/booking?options=-c%20TimeZone%3DUTC}
+    username: ${DATABASE_USERNAME:booking}
+    password: ${DATABASE_PASSWORD:booking_dev_password}
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 3000
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+  endpoint:
+    health:
+      show-details: when-authorized
+
+server:
+  port: 8080
