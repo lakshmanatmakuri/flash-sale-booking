@@ -1,6 +1,7 @@
 
 package com.example.booking.config;
 
+import org.springframework.http.HttpMethod;
 import com.example.booking.auth.security.JwtAuthenticationFilter;
 import com.example.booking.auth.security.JwtService;
 import com.example.booking.common.exception.ApiError;
@@ -106,9 +107,14 @@ public class SecurityConfig {
                                 "/api/auth/login"
                         ).permitAll()
 
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/events",
+                                "/api/events/*"
+                        ).permitAll()
+
                         .anyRequest().authenticated()
                 )
-
                 .addFilterBefore(
                         new JwtAuthenticationFilter(jwtService),
                         UsernamePasswordAuthenticationFilter.class
