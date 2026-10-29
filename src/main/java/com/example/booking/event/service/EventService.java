@@ -9,6 +9,7 @@ import com.example.booking.common.exception.ResourceNotFoundException;
 import com.example.booking.event.dto.CreateEventRequest;
 import com.example.booking.event.dto.EventResponse;
 import com.example.booking.event.dto.EventSummary;
+import com.example.booking.event.dto.SaleInfo;
 import com.example.booking.event.entity.Event;
 import com.example.booking.event.entity.EventStatus;
 import com.example.booking.event.repository.EventRepository;
@@ -20,6 +21,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.UUID;
@@ -117,5 +119,20 @@ public class EventService {
 
     private boolean canManage(AuthenticatedUser user, Event event) {
         return user != null && (user.isAdmin() || user.id().equals(event.getOrganizerId()));
+    }
+    /** Throws unless the event is published and its sale window is open right now. Joins the caller's transaction. */
+    @Transactional(readOnly = true)
+    public SaleInfo requireOpenForSale(UUID eventId) {
+        Event e = load(eventId);
+        if (e.getStatus() == EventStatus.DRAFT) {
+            throw new ResourceNotFoundException("Event", eventId);        // drafts do not exist for the public
+        }
+        Instant now = Instant.now();
+        boolean statusOk = e.getStatus() == EventStatus.PUBLISHED || e.getStatus() == EventStatus.ON_SALE;
+        boolean windowOk = !now.isBefore(e.getSaleStartsAt()) && now.isBefore(e.getSaleEndsAt());
+        if (!statusOk || !windowOk) {
+            throw new ConflictException("EVENT_NOT_ON_SALE", "Tickets for this event are not on sale right now");
+        }
+        return new SaleInfo(e.getId(), e.getMaxSeatsPerUser());
     }
 }

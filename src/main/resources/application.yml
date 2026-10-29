@@ -45,3 +45,12 @@ app:
   jwt:
     secret: ${JWT_SECRET}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
+
+  hold:
+    ttl-seconds: ${HOLD_TTL_SECONDS:300}
+    max-renewals: 1
+    sweep-batch-size: 500
+    sweep-interval-ms: 5000
+
+  scheduling:
+    enabled: true

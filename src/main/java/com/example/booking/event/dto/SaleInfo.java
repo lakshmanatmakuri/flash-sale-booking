@@ -1,4 +1,6 @@
 package com.example.booking.event.dto;
 
-public class SaleInfo {
-}
+import java.util.UUID;
+
+/** What the hold module needs to know about an event, and nothing more. */
+public record SaleInfo(UUID eventId, int maxSeatsPerUser) {}

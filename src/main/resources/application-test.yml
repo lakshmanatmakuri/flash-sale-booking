@@ -5,3 +5,5 @@ logging:
 app:
   jwt:
     secret: test-only-secret-test-only-secret-1234567890
+  scheduling:
+    enabled: false

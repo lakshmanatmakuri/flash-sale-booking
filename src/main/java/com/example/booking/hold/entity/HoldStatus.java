@@ -1,4 +1,3 @@
 package com.example.booking.hold.entity;
 
-public class HoldStatus {
-}
+public enum HoldStatus { ACTIVE, CONVERTED, EXPIRED, RELEASED }
