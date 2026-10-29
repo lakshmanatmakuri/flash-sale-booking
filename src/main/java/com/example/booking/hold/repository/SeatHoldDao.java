@@ -1,5 +1,6 @@
 package com.example.booking.hold.repository;
 
+import com.example.booking.hold.dto.ConvertedHold;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -107,5 +108,26 @@ public class SeatHoldDao {
                 """,
                 new MapSqlParameterSource().addValue("batch", batchSize),
                 (rs, n) -> new Expired(rs.getObject("id", UUID.class), rs.getObject("event_seat_id", UUID.class)));
+    }
+    /**
+     * ACTIVE -> CONVERTED for holds the user owns, only if not yet expired (database clock).
+     * All-or-nothing is enforced by the caller comparing the returned count.
+     * The inner SELECT locks rows in id order, so two parallel checkouts of overlapping holds cannot deadlock.
+     */
+    public List<ConvertedHold> convert(UUID userId, List<UUID> holdIds) {
+        return jdbc.query("""
+                UPDATE seat_holds
+                   SET status = 'CONVERTED', updated_at = now()
+                 WHERE id IN (
+                        SELECT id FROM seat_holds
+                         WHERE id IN (:ids) AND user_id = :userId
+                           AND status = 'ACTIVE' AND expires_at > now()
+                         ORDER BY id
+                           FOR UPDATE)
+                RETURNING id, event_seat_id, event_id, locked_price, currency
+                """,
+                new MapSqlParameterSource().addValue("ids", holdIds).addValue("userId", userId),
+                (rs, n) -> new ConvertedHold(rs.getObject("id", UUID.class), rs.getObject("event_seat_id", UUID.class),
+                        rs.getObject("event_id", UUID.class), rs.getBigDecimal("locked_price"), rs.getString("currency")));
     }
 }

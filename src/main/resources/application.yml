@@ -54,3 +54,10 @@ app:
 
   scheduling:
     enabled: true
+  payment:
+    recovery-min-age-seconds: 60
+    recovery-batch-size: 50
+  idempotency:
+    retention-hours: 24
+  ledger:
+    platform-fee-percent: 5.00

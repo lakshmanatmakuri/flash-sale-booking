@@ -20,12 +20,12 @@ public class HoldController {
 
     private final HoldService holdService;
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public List<HoldResponse> create(@AuthenticationPrincipal AuthenticatedUser user,
-                                     @Valid @RequestBody CreateHoldRequest request) {
-        return holdService.createHolds(user.id(), request);
-    }
+//    @PostMapping
+//    @ResponseStatus(HttpStatus.CREATED)
+//    public List<HoldResponse> create(@AuthenticationPrincipal AuthenticatedUser user,
+//                                     @Valid @RequestBody CreateHoldRequest request) {
+//        return holdService.createHolds(user.id(), request);
+//    }
 
     @GetMapping
     public List<HoldResponse> mine(@AuthenticationPrincipal AuthenticatedUser user) {
@@ -41,5 +41,12 @@ public class HoldController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void release(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable UUID id) {
         holdService.release(user.id(), id);
+    }
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<HoldResponse> create(@AuthenticationPrincipal AuthenticatedUser user,
+                                     @RequestHeader("Idempotency-Key") String idempotencyKey,
+                                     @Valid @RequestBody CreateHoldRequest request) {
+        return holdService.createHoldsIdempotent(user.id(), idempotencyKey, request);
     }
 }

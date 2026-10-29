@@ -1,3 +1,4 @@
+
 package com.example.booking.hold;
 
 import com.example.booking.support.AbstractIntegrationTest;
@@ -21,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class HoldApiTest extends AbstractIntegrationTest {
 
     private static final String AUTH = "Authorization";
+    private static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 
     @Autowired MockMvc mvc;
     @Autowired ObjectMapper om;
@@ -28,7 +30,9 @@ class HoldApiTest extends AbstractIntegrationTest {
     @Autowired TestFixtures fixtures;
 
     private String body(UUID eventId, UUID... seatIds) throws Exception {
-        return om.writeValueAsString(Map.of("eventId", eventId, "eventSeatIds", List.of(seatIds)));
+        return om.writeValueAsString(
+                Map.of("eventId", eventId, "eventSeatIds", List.of(seatIds))
+        );
     }
 
     @Test
@@ -38,31 +42,48 @@ class HoldApiTest extends AbstractIntegrationTest {
         String alice = "Bearer " + users.tokenFor(RoleName.USER);
         String bob = "Bearer " + users.tokenFor(RoleName.USER);
 
-        mvc.perform(post("/api/holds").contentType(MediaType.APPLICATION_JSON).content(body(fx.eventId(), seat)))
+        // Authentication is checked before hold creation.
+        mvc.perform(post("/api/holds")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(fx.eventId(), seat)))
                 .andExpect(status().isUnauthorized());
 
-        String json = mvc.perform(post("/api/holds").header(AUTH, alice)
-                        .contentType(MediaType.APPLICATION_JSON).content(body(fx.eventId(), seat)))
+        String json = mvc.perform(post("/api/holds")
+                        .header(AUTH, alice)
+                        .header(IDEMPOTENCY_KEY, UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(fx.eventId(), seat)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$[0].status").value("ACTIVE"))
                 .andExpect(jsonPath("$[0].eventSeatId").value(seat.toString()))
                 .andReturn().getResponse().getContentAsString();
+
         String holdId = om.readTree(json).get(0).get("id").asText();
 
-        mvc.perform(post("/api/holds").header(AUTH, bob)
-                        .contentType(MediaType.APPLICATION_JSON).content(body(fx.eventId(), seat)))
+        mvc.perform(post("/api/holds")
+                        .header(AUTH, bob)
+                        .header(IDEMPOTENCY_KEY, UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(fx.eventId(), seat)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("SEAT_NOT_AVAILABLE"));
 
         mvc.perform(get("/api/holds").header(AUTH, alice))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
 
-        mvc.perform(delete("/api/holds/" + holdId).header(AUTH, bob)).andExpect(status().isNotFound());
-        mvc.perform(delete("/api/holds/" + holdId).header(AUTH, alice)).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/holds/" + holdId).header(AUTH, bob))
+                .andExpect(status().isNotFound());
 
-        // the seat is free again, so Bob can take it
-        mvc.perform(post("/api/holds").header(AUTH, bob)
-                        .contentType(MediaType.APPLICATION_JSON).content(body(fx.eventId(), seat)))
+        mvc.perform(delete("/api/holds/" + holdId).header(AUTH, alice))
+                .andExpect(status().isNoContent());
+
+        // The seat is free again, so Bob can take it.
+        mvc.perform(post("/api/holds")
+                        .header(AUTH, bob)
+                        .header(IDEMPOTENCY_KEY, UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(fx.eventId(), seat)))
                 .andExpect(status().isCreated());
     }
 
@@ -70,8 +91,14 @@ class HoldApiTest extends AbstractIntegrationTest {
     void emptySeatListIsRejected() throws Exception {
         var fx = fixtures.createPublishedEvent(1, 2, 4);
         String alice = "Bearer " + users.tokenFor(RoleName.USER);
-        mvc.perform(post("/api/holds").header(AUTH, alice).contentType(MediaType.APPLICATION_JSON)
-                        .content(om.writeValueAsString(Map.of("eventId", fx.eventId(), "eventSeatIds", List.of()))))
+
+        mvc.perform(post("/api/holds")
+                        .header(AUTH, alice)
+                        .header(IDEMPOTENCY_KEY, UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(om.writeValueAsString(
+                                Map.of("eventId", fx.eventId(), "eventSeatIds", List.of())
+                        )))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }

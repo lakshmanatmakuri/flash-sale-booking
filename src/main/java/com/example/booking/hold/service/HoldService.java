@@ -5,9 +5,11 @@ import com.example.booking.common.exception.ConflictException;
 import com.example.booking.common.exception.HoldExpiredException;
 import com.example.booking.common.exception.ResourceNotFoundException;
 import com.example.booking.common.exception.SeatNotAvailableException;
+import com.example.booking.common.idempotency.IdempotencyService;
 import com.example.booking.event.dto.SaleInfo;
 import com.example.booking.event.service.EventService;
 import com.example.booking.hold.HoldProperties;
+import com.example.booking.hold.dto.ConvertedHold;
 import com.example.booking.hold.dto.CreateHoldRequest;
 import com.example.booking.hold.dto.HoldResponse;
 import com.example.booking.hold.entity.HoldStatus;
@@ -21,15 +23,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import com.fasterxml.jackson.core.type.TypeReference;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -155,5 +154,45 @@ public class HoldService {
         return holds.findById(holdId)
                 .filter(h -> h.getUserId().equals(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("Hold", holdId));
+    }
+    private final IdempotencyService idempotency;
+
+    public static final String SCOPE_CREATE = "HOLD_CREATE";
+
+    /** The public entry point for the API: the key and the holds commit together, or not at all. */
+    @Transactional
+    public List<HoldResponse> createHoldsIdempotent(UUID userId, String idempotencyKey, CreateHoldRequest req) {
+        return idempotency.executeJson(userId, SCOPE_CREATE, idempotencyKey, req,
+                new TypeReference<List<HoldResponse>>() {}, () -> createHolds(userId, req));
+    }
+
+    /**
+     * Checkout step 1: ACTIVE holds become CONVERTED and their seats move HELD -> PAYMENT_PENDING.
+     * From this moment the sweeper can no longer expire them (it only touches ACTIVE holds), so a hold can never
+     * expire while a payment is in flight. MANDATORY: runs inside the checkout transaction.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<ConvertedHold> convertForCheckout(UUID userId, List<UUID> holdIds) {
+        if (new HashSet<>(holdIds).size() != holdIds.size()) {
+            throw new BadRequestException("holdIds must not contain duplicates");
+        }
+        List<ConvertedHold> converted = new ArrayList<>(dao.convert(userId, holdIds));
+        if (converted.size() != holdIds.size()) {
+            // Expired, released, already converted, or not yours: all look identical to the caller (no info leak).
+            Set<UUID> got = converted.stream().map(ConvertedHold::holdId).collect(Collectors.toSet());
+            UUID missing = holdIds.stream().filter(id -> !got.contains(id)).findFirst().orElseThrow();
+            throw new HoldExpiredException(missing);          // rolls back the ones already converted
+        }
+        if (converted.stream().map(ConvertedHold::eventId).distinct().count() != 1) {
+            throw new BadRequestException("All holds in one payment must belong to the same event");
+        }
+        converted.sort(Comparator.comparing(ConvertedHold::eventSeatId));   // same lock order everywhere
+        for (ConvertedHold h : converted) {
+            if (!eventSeatService.transition(h.eventSeatId(), SeatStatus.HELD, SeatStatus.PAYMENT_PENDING)) {
+                throw new IllegalStateException("Seat " + h.eventSeatId() + " was not HELD although hold "
+                        + h.holdId() + " was ACTIVE");
+            }
+        }
+        return converted;
     }
 }
