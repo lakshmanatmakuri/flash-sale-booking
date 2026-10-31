@@ -6,3 +6,5 @@ logging:
 app:
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-change-me-this-is-at-least-32-bytes}
+  kafka:
+    consumer-enabled: true     # tests drive consumer logic directly; keeps assertions deterministic

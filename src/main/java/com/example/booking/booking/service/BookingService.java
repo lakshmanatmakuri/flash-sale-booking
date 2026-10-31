@@ -10,6 +10,8 @@ import com.example.booking.common.dto.PageResponse;
 import com.example.booking.common.exception.BadRequestException;
 import com.example.booking.common.exception.ResourceNotFoundException;
 import com.example.booking.hold.dto.ConvertedHold;
+import com.example.booking.infrastructure.outbox.DomainEvents;
+import com.example.booking.infrastructure.outbox.OutboxService;
 import com.example.booking.seat.entity.SeatStatus;
 import com.example.booking.seat.service.EventSeatService;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ public class BookingService {
     private final BookingItemRepository items;
     private final BookingDao dao;
     private final EventSeatService eventSeatService;
+    private final OutboxService outbox;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public Booking createPending(UUID userId, List<ConvertedHold> holds) {
@@ -67,18 +70,19 @@ public class BookingService {
     }
 
     /** Payment failed: booking FAILED, items RELEASED, seats back to AVAILABLE. */
+    /** Payment failed: booking FAILED, items RELEASED, seats back to AVAILABLE, one SeatReleased event per seat. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void fail(UUID bookingId) {
-        if (!dao.fail(bookingId)) {
-            throw new IllegalStateException("Booking " + bookingId + " was not PENDING_PAYMENT while failing");
-        }
+        UUID eventId = dao.fail(bookingId).orElseThrow(() -> new IllegalStateException(
+                "Booking " + bookingId + " was not PENDING_PAYMENT while failing"));
         dao.setItemsStatus(bookingId, "PENDING", "RELEASED");
         for (UUID seatId : sortedSeatIds(bookingId)) {
             if (!eventSeatService.transition(seatId, SeatStatus.PAYMENT_PENDING, SeatStatus.AVAILABLE)) {
                 throw new IllegalStateException("Seat " + seatId + " was not PAYMENT_PENDING at release");
             }
+            outbox.record("SEAT", seatId.toString(), DomainEvents.SEAT_RELEASED,
+                    new DomainEvents.SeatReleased(eventId, seatId, "PAYMENT_FAILED"));
         }
-        // PHASE 8: SeatReleased outbox events (wakes the waitlist).
     }
 
     @Transactional(readOnly = true)

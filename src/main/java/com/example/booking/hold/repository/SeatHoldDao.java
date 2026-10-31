@@ -25,7 +25,9 @@ import java.util.UUID;
 public class SeatHoldDao {
 
     public record Inserted(UUID id, Instant expiresAt) {}
-    public record Expired(UUID holdId, UUID eventSeatId) {}
+    public record Expired(UUID holdId, UUID eventSeatId, UUID eventId) {}
+
+    public record Released(UUID eventSeatId, UUID eventId) {}
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -78,7 +80,7 @@ public class SeatHoldDao {
     }
 
     /** ACTIVE -> RELEASED for the owner. Returns the seat to free, or empty if nothing matched. */
-    public Optional<UUID> release(UUID holdId, UUID userId) {
+   /* public Optional<UUID> release(UUID holdId, UUID userId) {
         List<UUID> rows = jdbc.query("""
                 UPDATE seat_holds SET status = 'RELEASED', updated_at = now()
                  WHERE id = :id AND user_id = :userId AND status = 'ACTIVE'
@@ -87,14 +89,29 @@ public class SeatHoldDao {
                 new MapSqlParameterSource().addValue("id", holdId).addValue("userId", userId),
                 (rs, n) -> rs.getObject("event_seat_id", UUID.class));
         return rows.stream().findFirst();
+    }*/
+    /** ACTIVE -> RELEASED for the owner. Empty if nothing matched. */
+    public Optional<Released> release(UUID holdId, UUID userId) {
+        return jdbc.query("""
+            UPDATE seat_holds SET status = 'RELEASED', updated_at = now()
+             WHERE id = :id AND user_id = :userId AND status = 'ACTIVE'
+            RETURNING event_seat_id, event_id
+            """,
+                        new MapSqlParameterSource()
+                                .addValue("id", holdId)
+                                .addValue("userId", userId),
+                        (rs, n) -> new Released(
+                                rs.getObject("event_seat_id", UUID.class),
+                                rs.getObject("event_id", UUID.class)))
+                .stream()
+                .findFirst();
     }
-
     /**
      * Marks up to `batchSize` due holds EXPIRED and returns them.
      * FOR UPDATE SKIP LOCKED: if two app instances sweep at the same time, each gets a DIFFERENT set of rows.
      * Nobody waits and nobody double-processes. This is the standard "work queue in Postgres" pattern.
      */
-    public List<Expired> expireDue(int batchSize) {
+    /*public List<Expired> expireDue(int batchSize) {
         return jdbc.query("""
                 UPDATE seat_holds
                    SET status = 'EXPIRED', updated_at = now()
@@ -108,6 +125,24 @@ public class SeatHoldDao {
                 """,
                 new MapSqlParameterSource().addValue("batch", batchSize),
                 (rs, n) -> new Expired(rs.getObject("id", UUID.class), rs.getObject("event_seat_id", UUID.class)));
+    }*/
+    public List<Expired> expireDue(int batchSize) {
+        return jdbc.query("""
+            UPDATE seat_holds
+               SET status = 'EXPIRED', updated_at = now()
+             WHERE id IN (
+                    SELECT id FROM seat_holds
+                     WHERE status = 'ACTIVE' AND expires_at < now()
+                     ORDER BY expires_at
+                     LIMIT :batch
+                       FOR UPDATE SKIP LOCKED)
+            RETURNING id, event_seat_id, event_id
+            """,
+                new MapSqlParameterSource().addValue("batch", batchSize),
+                (rs, n) -> new Expired(
+                        rs.getObject("id", UUID.class),
+                        rs.getObject("event_seat_id", UUID.class),
+                        rs.getObject("event_id", UUID.class)));
     }
     /**
      * ACTIVE -> CONVERTED for holds the user owns, only if not yet expired (database clock).

@@ -26,11 +26,13 @@ public class BookingDao {
     }
 
     /** PENDING_PAYMENT -> FAILED. */
-    public boolean fail(UUID bookingId) {
-        return jdbc.update("""
+    /** PENDING_PAYMENT -> FAILED. Returns the event id, or empty if the booking was not PENDING_PAYMENT. */
+    public Optional<UUID> fail(UUID bookingId) {
+        return jdbc.queryForList("""
                 UPDATE bookings SET status = 'FAILED', version = version + 1, updated_at = now()
                  WHERE id = :id AND status = 'PENDING_PAYMENT'
-                """, Map.of("id", bookingId)) == 1;
+                RETURNING event_id
+                """, Map.of("id", bookingId), UUID.class).stream().findFirst();
     }
 
     public int setItemsStatus(UUID bookingId, String from, String to) {

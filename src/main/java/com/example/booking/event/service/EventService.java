@@ -135,4 +135,9 @@ public class EventService {
         }
         return new SaleInfo(e.getId(), e.getMaxSeatsPerUser());
     }
+
+    @Transactional(readOnly = true)
+    public UUID organizerIdOf(UUID eventId) {
+        return load(eventId).getOrganizerId();
+    }
 }

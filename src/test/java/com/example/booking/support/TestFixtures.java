@@ -68,4 +68,32 @@ public class TestFixtures {
                 "SELECT id FROM event_seats WHERE event_id = ? ORDER BY id", UUID.class, event.id());
         return new EventFixture(event.id(), seatIds);
     }
+    @Autowired com.example.booking.ledger.service.LedgerPostings ledgerPostings;
+
+    /** Gives a user wallet money directly through the ledger (no provider involved). */
+    public void topUpWallet(UUID userId, String amount) {
+        ledgerPostings.recordWalletTopup(userId, UUID.randomUUID().toString(), new BigDecimal(amount), "INR");
+    }
+
+    /** One readable string per entry, e.g. "DEBIT ESCROW 500.00", for the ledger transaction with this idempotency key. */
+    public List<String> ledgerEntries(String idempotencyKey) {
+        return jdbc.queryForList("""
+                SELECT e.direction || ' ' || a.code || ' ' || CAST(CAST(e.amount AS NUMERIC(19,2)) AS TEXT)
+                  FROM ledger_entries e
+                  JOIN ledger_transactions t ON t.id = e.transaction_id
+                  JOIN ledger_accounts a ON a.id = e.account_id
+                 WHERE t.idempotency_key = ? ORDER BY e.id
+                """, String.class, idempotencyKey);
+    }
+
+    /** Derived balance of one account (0 if it does not exist yet). */
+    public BigDecimal balanceOf(String accountCode) {
+        return jdbc.queryForObject("""
+                SELECT COALESCE(SUM(CASE WHEN e.direction =
+                                         CASE WHEN a.type IN ('ASSET', 'EXPENSE') THEN 'DEBIT' ELSE 'CREDIT' END
+                                    THEN e.amount ELSE -e.amount END), 0)
+                  FROM ledger_accounts a LEFT JOIN ledger_entries e ON e.account_id = a.id
+                 WHERE a.code = ?
+                """, BigDecimal.class, accountCode);
+    }
 }

@@ -16,6 +16,8 @@ import com.example.booking.hold.entity.HoldStatus;
 import com.example.booking.hold.entity.SeatHold;
 import com.example.booking.hold.repository.SeatHoldDao;
 import com.example.booking.hold.repository.SeatHoldRepository;
+import com.example.booking.infrastructure.outbox.DomainEvents;
+import com.example.booking.infrastructure.outbox.OutboxService;
 import com.example.booking.seat.dto.SeatPrice;
 import com.example.booking.seat.entity.SeatStatus;
 import com.example.booking.seat.service.EventSeatService;
@@ -40,6 +42,7 @@ public class HoldService {
     private final SeatHoldDao dao;
     private final SeatHoldRepository holds;
     private final HoldProperties props;
+    private final OutboxService outbox;
 
     /**
      * ALL-OR-NOTHING hold of 1..N seats in ONE transaction. If any seat is taken, the exception rolls back the
@@ -88,6 +91,21 @@ public class HoldService {
             }
         }
         // PHASE 8: write the SeatHeld outbox event here, in this same transaction.
+        for (HoldResponse h : result) {
+            outbox.record(
+                    "SEAT",
+                    h.eventSeatId().toString(),
+                    DomainEvents.SEAT_HELD,
+                    new DomainEvents.SeatHeld(
+                            h.eventId(),
+                            h.eventSeatId(),
+                            h.id(),
+                            userId,
+                            h.lockedPrice(),
+                            h.expiresAt()
+                    )
+            );
+        }
         return result;
     }
 
@@ -113,14 +131,18 @@ public class HoldService {
     }
 
     /** Idempotent: releasing an already released/expired hold is a harmless no-op. */
+    /** Idempotent: releasing an already released/expired hold is a harmless no-op. */
     @Transactional
     public void release(UUID userId, UUID holdId) {
-        Optional<UUID> seatId = dao.release(holdId, userId);
-        if (seatId.isPresent()) {
-            if (!eventSeatService.transition(seatId.get(), SeatStatus.HELD, SeatStatus.AVAILABLE)) {
-                log.error("Hold {} released but seat {} was not HELD: data inconsistency", holdId, seatId.get());
+        Optional<SeatHoldDao.Released> released = dao.release(holdId, userId);
+        if (released.isPresent()) {
+            SeatHoldDao.Released r = released.get();
+            if (eventSeatService.transition(r.eventSeatId(), SeatStatus.HELD, SeatStatus.AVAILABLE)) {
+                outbox.record("SEAT", r.eventSeatId().toString(), DomainEvents.SEAT_RELEASED,
+                        new DomainEvents.SeatReleased(r.eventId(), r.eventSeatId(), "HOLD_RELEASED"));
+            } else {
+                log.error("Hold {} released but seat {} was not HELD: data inconsistency", holdId, r.eventSeatId());
             }
-            // PHASE 8: SeatReleased outbox event (this is what wakes the waitlist).
             return;
         }
         SeatHold hold = ownedHold(userId, holdId);
@@ -141,12 +163,16 @@ public class HoldService {
         expired.stream()
                 .sorted(Comparator.comparing(SeatHoldDao.Expired::eventSeatId))   // same lock order everywhere
                 .forEach(h -> {
-                    if (!eventSeatService.transition(h.eventSeatId(), SeatStatus.HELD, SeatStatus.AVAILABLE)) {
+                    if (eventSeatService.transition(h.eventSeatId(), SeatStatus.HELD, SeatStatus.AVAILABLE)) {
+                        outbox.record("SEAT", h.eventSeatId().toString(), DomainEvents.SEAT_HOLD_EXPIRED,
+                                new DomainEvents.SeatHoldExpired(h.eventId(), h.eventSeatId(), h.holdId()));
+                        outbox.record("SEAT", h.eventSeatId().toString(), DomainEvents.SEAT_RELEASED,
+                                new DomainEvents.SeatReleased(h.eventId(), h.eventSeatId(), "HOLD_EXPIRED"));
+                    } else {
                         log.error("Hold {} expired but seat {} was not HELD: data inconsistency",
                                 h.holdId(), h.eventSeatId());
                     }
                 });
-        // PHASE 8: SeatHoldExpired + SeatReleased outbox events here.
         return expired.size();
     }
 

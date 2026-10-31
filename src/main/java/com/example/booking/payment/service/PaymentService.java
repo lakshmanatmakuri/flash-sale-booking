@@ -34,14 +34,16 @@ public class PaymentService {
      * them, and no database connection is held while we wait for the provider.
      */
     public PaymentResult pay(UUID userId, String idempotencyKey, PayRequest req) {
-        if (req.method() == PaymentMethod.CARD
-                && (req.paymentMethodToken() == null || req.paymentMethodToken().isBlank())) {
+        if (req.method() == PaymentMethod.WALLET) {
+            PaymentInitiator.Initiation init = initiator.payWithWallet(userId, idempotencyKey, req);   // one transaction
+            return new PaymentResult(queries.get(init.paymentId()), init.replayed());
+        }
+        if (req.paymentMethodToken() == null || req.paymentMethodToken().isBlank()) {
             throw new BadRequestException("paymentMethodToken is required for CARD payments");
         }
 
         PaymentInitiator.Initiation init = initiator.initiate(userId, idempotencyKey, req);   // TX 1
         if (init.replayed()) {
-            // Duplicate request: do NOTHING again, just report where the original payment stands right now.
             return new PaymentResult(queries.get(init.paymentId()), true);
         }
 

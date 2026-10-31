@@ -33,16 +33,19 @@ public class IdempotencyService {
     private record Stored(String requestHash, String responseBody, UUID resourceId) {}
 
     private static final Pattern KEY_FORMAT = Pattern.compile("^[A-Za-z0-9_.:-]{8,100}$");
-
+    public static void requireValidKey(String key) {
+        if (key == null || !KEY_FORMAT.matcher(key).matches()) {
+            throw new BadRequestException(
+                    "Idempotency-Key must be 8-100 characters: letters, digits, '_', '-', '.', ':'");
+        }
+    }
     private final NamedParameterJdbcTemplate jdbc;
     private final ObjectMapper mapper;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public Claim claim(UUID userId, String scope, String key, Object request) {
-        if (key == null || !KEY_FORMAT.matcher(key).matches()) {
-            throw new BadRequestException(
-                    "Idempotency-Key must be 8-100 characters: letters, digits, '_', '-', '.', ':'");
-        }
+        requireValidKey(key);
+
         String hash = sha256Hex(toJson(request));
         MapSqlParameterSource p = new MapSqlParameterSource()
                 .addValue("userId", userId).addValue("scope", scope).addValue("key", key).addValue("hash", hash);
@@ -115,4 +118,5 @@ public class IdempotencyService {
             throw new IllegalStateException(e);
         }
     }
+
 }

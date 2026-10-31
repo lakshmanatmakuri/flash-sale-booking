@@ -17,7 +17,6 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
-/** A separate bean from PaymentService so its @Transactional is applied through the Spring proxy (never self-invoked). */
 @Service
 @RequiredArgsConstructor
 public class PaymentInitiator {
@@ -31,20 +30,37 @@ public class PaymentInitiator {
     private final BookingService bookingService;
     private final PaymentRepository payments;
     private final PaymentProvider provider;
+    private final PaymentSettler settler;
 
-    /** TX 1: short, database only. Nothing in here may talk to the network. */
+    /** Card, TX 1: short, database only. The provider call happens afterwards, outside any transaction. */
     @Transactional
     public Initiation initiate(UUID userId, String idempotencyKey, PayRequest req) {
         var claim = idempotency.claim(userId, SCOPE, idempotencyKey, req);
-        if (claim.replay()) {
-            return new Initiation(claim.resourceId(), true, null, null);
-        }
+        if (claim.replay()) return new Initiation(claim.resourceId(), true, null, null);
+        Payment payment = createPending(userId, idempotencyKey, req, provider.name());
+        return new Initiation(payment.getId(), false, payment.getAmount(), payment.getCurrency());
+    }
 
+    /**
+     * Wallet: ONE transaction, start to finish. There is no network call, so nothing slow can happen while locks are
+     * held. If the wallet is short, InsufficientBalanceException rolls back everything: the holds stay ACTIVE, the
+     * idempotency key is released, and the user can top up and retry with the same request.
+     */
+    @Transactional
+    public Initiation payWithWallet(UUID userId, String idempotencyKey, PayRequest req) {
+        var claim = idempotency.claim(userId, SCOPE, idempotencyKey, req);
+        if (claim.replay()) return new Initiation(claim.resourceId(), true, null, null);
+        Payment payment = createPending(userId, idempotencyKey, req, Payment.WALLET_PROVIDER);
+        settler.settleSuccess(payment.getId(), null);     // joins this transaction: debit wallet, confirm, settle
+        return new Initiation(payment.getId(), false, payment.getAmount(), payment.getCurrency());
+    }
+
+    private Payment createPending(UUID userId, String idempotencyKey, PayRequest req, String providerName) {
         List<ConvertedHold> holds = holdService.convertForCheckout(userId, req.holdIds());
         Booking booking = bookingService.createPending(userId, holds);
         Payment payment = payments.saveAndFlush(Payment.pending(
-                booking.getId(), userId, booking.getTotalAmount(), booking.getCurrency(), provider.name()));
+                booking.getId(), userId, booking.getTotalAmount(), booking.getCurrency(), providerName));
         idempotency.attachResource(userId, SCOPE, idempotencyKey, payment.getId());
-        return new Initiation(payment.getId(), false, payment.getAmount(), payment.getCurrency());
+        return payment;
     }
 }
