@@ -113,6 +113,8 @@ public class SecurityConfig {
                                 "/api/events/*"
                         ).permitAll()
 
+                        .requestMatchers(HttpMethod.POST, "/api/webhooks/payments").permitAll()
+
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(

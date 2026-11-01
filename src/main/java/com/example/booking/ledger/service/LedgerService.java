@@ -167,4 +167,12 @@ public class LedgerService {
         boolean debitNormal = accountType.equals("ASSET") || accountType.equals("EXPENSE");
         return debitNormal ? d == Direction.CREDIT : d == Direction.DEBIT;
     }
+    /** Reverses the transaction that was posted under `originalIdempotencyKey`. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Posted reverseByKey(String originalIdempotencyKey, String reversalKey, String description) {
+        UUID id = jdbc.queryForList("SELECT id FROM ledger_transactions WHERE idempotency_key = :k",
+                        Map.of("k", originalIdempotencyKey), UUID.class).stream().findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Ledger transaction", originalIdempotencyKey));
+        return reverse(id, reversalKey, description);
+    }
 }

@@ -1,3 +1,4 @@
+
 package com.example.booking.payment.provider;
 
 import java.math.BigDecimal;
@@ -21,15 +22,60 @@ public interface PaymentProvider {
 
     ProviderStatus queryStatus(String reference);
 
-    enum ChargeOutcome { SUCCEEDED, FAILED, TIMEOUT, UNKNOWN }
+    enum ChargeOutcome {
+        SUCCEEDED, FAILED, TIMEOUT, UNKNOWN
+    }
 
-    enum ProviderStatus { SUCCEEDED, FAILED, PENDING, NOT_FOUND }
+    enum ProviderStatus {
+        SUCCEEDED, FAILED, PENDING, NOT_FOUND
+    }
 
-    record ChargeRequest(String reference, BigDecimal amount, String currency, String paymentMethodToken) {}
+    record ChargeRequest(
+            String reference,
+            BigDecimal amount,
+            String currency,
+            String paymentMethodToken
+    ) {}
 
-    record ChargeResult(ChargeOutcome outcome, String providerRef, String failureCode) {
+    record ChargeResult(
+            ChargeOutcome outcome,
+            String providerRef,
+            String failureCode
+    ) {
         public static ChargeResult timeout() {
             return new ChargeResult(ChargeOutcome.TIMEOUT, null, null);
+        }
+    }
+
+    /**
+     * Refunds a previous charge. IDEMPOTENT on request.reference():
+     * calling it again with the same reference never refunds twice
+     * and returns the original outcome. This makes retries and crash recovery safe.
+     */
+    RefundResult refund(RefundRequest request);
+
+    enum RefundOutcome {
+        SUCCEEDED, FAILED, TIMEOUT, UNKNOWN
+    }
+
+    /**
+     * reference = our refund id;
+     * paymentReference = the reference used when charging (our payment id).
+     */
+    record RefundRequest(
+            String reference,
+            String paymentReference,
+            BigDecimal amount,
+            String currency
+    ) {}
+
+    record RefundResult(
+            RefundOutcome outcome,
+            String providerRef,
+            String failureCode
+    ) {
+        public static RefundResult timeout() {
+            return new RefundResult(RefundOutcome.TIMEOUT, null, null);
         }
     }
 }

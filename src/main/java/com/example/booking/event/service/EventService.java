@@ -140,4 +140,11 @@ public class EventService {
     public UUID organizerIdOf(UUID eventId) {
         return load(eventId).getOrganizerId();
     }
+
+    @Transactional(readOnly = true)
+    public void requireNotStarted(UUID eventId) {
+        if (!Instant.now().isBefore(load(eventId).getStartsAt())) {
+            throw new ConflictException("EVENT_ALREADY_STARTED", "Bookings cannot be cancelled once the event has started");
+        }
+    }
 }

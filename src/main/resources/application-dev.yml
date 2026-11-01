@@ -6,5 +6,8 @@ logging:
 app:
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-change-me-this-is-at-least-32-bytes}
+  payment:
+    webhook:
+      secret: ${PAYMENT_WEBHOOK_SECRET:dev-only-webhook-secret-change-me}
   kafka:
     consumer-enabled: true     # tests drive consumer logic directly; keeps assertions deterministic

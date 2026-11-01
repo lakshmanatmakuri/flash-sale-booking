@@ -69,4 +69,17 @@ public class LedgerPostings {
     public Posted reverse(UUID transactionId, String idempotencyKey, String description) {
         return ledger.reverse(transactionId, idempotencyKey, description);
     }
+    /** Cancellation, step 1: the organizer's share and the platform fee go back to escrow. */
+    @Transactional
+    public Posted reverseBookingSettlement(UUID bookingId, UUID refundId) {
+        return ledger.reverseByKey("BOOKING_SETTLEMENT:" + bookingId, "REFUND_SETTLEMENT:" + refundId,
+                "Booking cancelled: organizer share reversed");
+    }
+
+    /** Cancellation, step 2, only after the provider confirmed the refund: escrow returns to the payer. */
+    @Transactional
+    public Posted reversePaymentCapture(UUID paymentId, UUID refundId) {
+        return ledger.reverseByKey("PAYMENT_CAPTURE:" + paymentId, "REFUND_CAPTURE:" + refundId,
+                "Refund completed: escrow returned");
+    }
 }

@@ -13,6 +13,15 @@ public final class DomainEvents {
     public static final String SEAT_RELEASED = "SeatReleased";
     public static final String PAYMENT_FAILED = "PaymentFailed";
     public static final String BOOKING_CONFIRMED = "BookingConfirmed";
+    public static final String BOOKING_CANCELLED = "BookingCancelled";
+    public static final String REFUND_COMPLETED = "RefundCompleted";
+    public static final String REFUND_FAILED = "RefundFailed";
+
+    public record BookingCancelled(UUID bookingId, UUID eventId, UUID userId) {}
+    public record RefundCompleted(UUID refundId, UUID paymentId, UUID bookingId, UUID userId,
+                                  BigDecimal amount, String currency, String reason) {}
+    public record RefundFailed(UUID refundId, UUID paymentId, UUID bookingId, UUID userId,
+                               String failureCode, int attempts) {}
 
     public record SeatHeld(UUID eventId, UUID eventSeatId, UUID holdId, UUID userId,
                            BigDecimal lockedPrice, Instant expiresAt) {}

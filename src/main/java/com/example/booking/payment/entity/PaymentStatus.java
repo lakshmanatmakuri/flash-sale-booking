@@ -1,3 +1,3 @@
 package com.example.booking.payment.entity;
 
-public enum PaymentStatus { PENDING, UNKNOWN, SUCCEEDED, FAILED, REFUNDED }
+public enum PaymentStatus { PENDING, UNKNOWN, SUCCEEDED, FAILED, REFUND_PENDING, REFUNDED }

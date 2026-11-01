@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import java.math.BigDecimal;
 import java.sql.Types;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -77,5 +78,36 @@ public class PaymentDao {
         return new MapSqlParameterSource().addValue("id", id)
                 .addValue("providerRef", providerRef, Types.VARCHAR)
                 .addValue("failureCode", failureCode, Types.VARCHAR);
+    }
+    public Optional<String> findStatus(UUID id) {
+        return jdbc.queryForList("SELECT status FROM payments WHERE id = :id", Map.of("id", id), String.class)
+                .stream().findFirst();
+    }
+
+    /** Cancellation: SUCCEEDED -> REFUND_PENDING for this booking's payment. */
+    public Optional<SettledPayment> startRefundForBooking(UUID bookingId) {
+        return jdbc.query("""
+                UPDATE payments SET status = 'REFUND_PENDING', version = version + 1, updated_at = now()
+                 WHERE booking_id = :id AND status = 'SUCCEEDED'
+                RETURNING id, booking_id, user_id, amount, currency, provider
+                """, Map.of("id", bookingId), SETTLED).stream().findFirst();
+    }
+
+    /** Late success: the payment was FAILED, but the provider did capture the money. Wallet payments can never be late. */
+    public Optional<SettledPayment> markLateCaptured(UUID id, String providerRef) {
+        return jdbc.query("""
+                UPDATE payments
+                   SET status = 'REFUND_PENDING', provider_ref = COALESCE(:providerRef, provider_ref),
+                       version = version + 1, updated_at = now()
+                 WHERE id = :id AND status = 'FAILED' AND provider <> 'wallet'
+                RETURNING id, booking_id, user_id, amount, currency, provider
+                """, params(id, providerRef, null), SETTLED).stream().findFirst();
+    }
+
+    public boolean markRefunded(UUID id) {
+        return jdbc.update("""
+                UPDATE payments SET status = 'REFUNDED', version = version + 1, updated_at = now()
+                 WHERE id = :id AND status = 'REFUND_PENDING'
+                """, Map.of("id", id)) == 1;
     }
 }

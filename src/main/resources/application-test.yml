@@ -9,3 +9,5 @@ app:
     enabled: false
   payment:
     recovery-min-age-seconds: 0
+    webhook:
+      secret: test-webhook-secret-123

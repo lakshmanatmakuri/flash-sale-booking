@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -104,5 +105,24 @@ public class BookingService {
 
     private List<UUID> sortedSeatIds(UUID bookingId) {
         return items.findByBookingId(bookingId).stream().map(BookingItem::getEventSeatId).sorted().toList();
+    }
+    /** CONFIRMED -> CANCELLED, items RELEASED, seats BOOKED -> CANCELLED -> AVAILABLE. Empty = not CONFIRMED (lost a race). */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<UUID> cancel(UUID bookingId, UUID userId) {
+        Optional<UUID> eventId = dao.cancel(bookingId);
+        if (eventId.isEmpty()) return eventId;
+
+        dao.setItemsStatus(bookingId, "CONFIRMED", "RELEASED");
+        for (UUID seatId : sortedSeatIds(bookingId)) {
+            if (!eventSeatService.transition(seatId, SeatStatus.BOOKED, SeatStatus.CANCELLED)
+                    || !eventSeatService.transition(seatId, SeatStatus.CANCELLED, SeatStatus.AVAILABLE)) {
+                throw new IllegalStateException("Seat " + seatId + " was not BOOKED while cancelling booking " + bookingId);
+            }
+            outbox.record("SEAT", seatId.toString(), DomainEvents.SEAT_RELEASED,
+                    new DomainEvents.SeatReleased(eventId.get(), seatId, "BOOKING_CANCELLED"));
+        }
+        outbox.record("BOOKING", bookingId.toString(), DomainEvents.BOOKING_CANCELLED,
+                new DomainEvents.BookingCancelled(bookingId, eventId.get(), userId));
+        return eventId;
     }
 }

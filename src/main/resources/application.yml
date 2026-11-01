@@ -77,6 +77,10 @@ app:
   payment:
     recovery-min-age-seconds: 60
     recovery-batch-size: 50
+    refund-max-attempts: 5
+    webhook:
+      secret: ${PAYMENT_WEBHOOK_SECRET}
+      tolerance-seconds: 300
 
   idempotency:
     retention-hours: 24

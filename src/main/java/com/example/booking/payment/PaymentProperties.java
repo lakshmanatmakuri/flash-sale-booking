@@ -6,4 +6,5 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 @ConfigurationProperties(prefix = "app.payment")
 public record PaymentProperties(
         @DefaultValue("60") long recoveryMinAgeSeconds,
-        @DefaultValue("50") int recoveryBatchSize) {}
+        @DefaultValue("50") int recoveryBatchSize,
+        @DefaultValue("5") int refundMaxAttempts) {}

@@ -69,4 +69,53 @@ public class MockPaymentProvider implements PaymentProvider {
         AtomicInteger c = calls.get(reference);
         return c == null ? 0 : c.get();
     }
+    /** Test/demo switch: how the NEXT refund calls behave. */
+    public enum RefundBehavior { SUCCEED, FAIL, TIMEOUT_REFUNDED, TIMEOUT_LOST, PROCESSING }
+
+    private volatile RefundBehavior refundBehavior = RefundBehavior.SUCCEED;
+    private final ConcurrentHashMap<String, ProviderStatus> refundSide = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> refundCalls = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> refundsApplied = new ConcurrentHashMap<>();
+
+    @Override
+    public RefundResult refund(RefundRequest r) {
+        refundCalls.computeIfAbsent(r.reference(), k -> new AtomicInteger()).incrementAndGet();
+        String ref = "mock_rf_" + r.reference();
+
+        ProviderStatus known = refundSide.get(r.reference());
+        if (known == ProviderStatus.SUCCEEDED) {                        // idempotent, like a real provider
+            return new RefundResult(RefundOutcome.SUCCEEDED, ref, null);
+        }
+        if (known == ProviderStatus.PENDING) {                          // "processing" has finished since the last call
+            applyRefund(r.reference());
+            return new RefundResult(RefundOutcome.SUCCEEDED, ref, null);
+        }
+        return switch (refundBehavior) {
+            case SUCCEED -> {
+                applyRefund(r.reference());
+                yield new RefundResult(RefundOutcome.SUCCEEDED, ref, null);
+            }
+            case FAIL -> new RefundResult(RefundOutcome.FAILED, null, "refund_declined");   // remembers nothing: a later retry can succeed
+            case TIMEOUT_REFUNDED -> {                                  // money moved, the response was lost
+                applyRefund(r.reference());
+                yield RefundResult.timeout();
+            }
+            case TIMEOUT_LOST -> RefundResult.timeout();                // the request never arrived
+            case PROCESSING -> {
+                refundSide.put(r.reference(), ProviderStatus.PENDING);
+                yield new RefundResult(RefundOutcome.UNKNOWN, ref, null);
+            }
+        };
+    }
+
+    private void applyRefund(String reference) {
+        if (refundSide.put(reference, ProviderStatus.SUCCEEDED) != ProviderStatus.SUCCEEDED) {
+            refundsApplied.computeIfAbsent(reference, k -> new AtomicInteger()).incrementAndGet();
+        }
+    }
+
+    public void setRefundBehavior(RefundBehavior behavior) { this.refundBehavior = behavior; }
+    public int refundCalls(String reference) { var c = refundCalls.get(reference); return c == null ? 0 : c.get(); }
+    /** How many times money actually moved back for this reference (must never exceed 1). */
+    public int refundsApplied(String reference) { var c = refundsApplied.get(reference); return c == null ? 0 : c.get(); }
 }

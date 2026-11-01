@@ -41,4 +41,12 @@ public class BookingDao {
                  WHERE booking_id = :id AND status = :from
                 """, Map.of("id", bookingId, "from", from, "to", to));
     }
+    /** CONFIRMED -> CANCELLED. Returns the event id, or empty if the booking was not CONFIRMED (someone else got there first). */
+    public Optional<UUID> cancel(UUID bookingId) {
+        return jdbc.queryForList("""
+                UPDATE bookings SET status = 'CANCELLED', version = version + 1, updated_at = now()
+                 WHERE id = :id AND status = 'CONFIRMED'
+                RETURNING event_id
+                """, Map.of("id", bookingId), UUID.class).stream().findFirst();
+    }
 }
