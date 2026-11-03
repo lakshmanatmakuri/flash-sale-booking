@@ -11,3 +11,5 @@ app:
     recovery-min-age-seconds: 0
     webhook:
       secret: test-webhook-secret-123
+  cors:
+    allowed-origins: http://localhost:5173

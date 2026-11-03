@@ -65,6 +65,9 @@ app:
     secret: ${JWT_SECRET}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:60}
 
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}      # no default in base: prod must say who may call it
+
   hold:
     ttl-seconds: ${HOLD_TTL_SECONDS:300}
     max-renewals: 1
