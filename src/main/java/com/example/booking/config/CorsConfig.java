@@ -20,7 +20,8 @@ class CorsConfig {
         cfg.setAllowedOrigins(allowedOrigins);
         cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
-        cfg.setExposedHeaders(List.of("Location"));
+
+        cfg.setExposedHeaders(List.of("Location", "Date"));
         cfg.setMaxAge(3600L);                       // browsers cache the preflight for an hour
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

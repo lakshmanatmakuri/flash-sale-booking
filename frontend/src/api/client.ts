@@ -28,7 +28,13 @@ export function saveSession(s: Session | null): void {
 }
 
 // ---------- errors ----------
+// ---------- server clock ----------
+// The browser clock can be wrong. The server's Date header lets us measure the difference once per response.
+let serverOffsetMs = 0
 
+export function serverNow(): number {
+    return Date.now() + serverOffsetMs
+}
 export class ApiClientError extends Error {
     readonly status: number
     readonly code: string
@@ -87,6 +93,16 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T
     } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') throw e
         throw networkError()
+    }
+    // ---------- update server clock ----------
+    const serverDate = res.headers.get('Date')
+
+    if (serverDate) {
+        const t = Date.parse(serverDate)
+
+        if (!Number.isNaN(t)) {
+            serverOffsetMs = t - Date.now()
+        }
     }
 
     if (res.ok) {

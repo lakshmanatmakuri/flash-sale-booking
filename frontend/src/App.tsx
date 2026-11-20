@@ -3,6 +3,7 @@ import { AuthProvider } from './api/auth/AuthContext'
 import RequireAuth from './api/auth/RequireAuth'
 import Layout from './components/Layout'
 import HomePage from './pages/HomePage'
+import EventPage from './pages/EventPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 
@@ -16,6 +17,7 @@ export default function App() {
                         <Route path="/register" element={<RegisterPage />} />
                         {/* Events are public to browse; everything that spends money sits behind RequireAuth (added in 7b/7c). */}
                         <Route path="/" element={<HomePage />} />
+                        <Route path="/events/:id" element={<EventPage />} />
                         <Route element={<RequireAuth />}>
                             {/* /events/:id, /bookings, /wallet are added in 7b and 7c */}
                         </Route>
